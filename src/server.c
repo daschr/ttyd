@@ -95,7 +95,7 @@ static void print_help() {
           "    -p, --port              Port to listen (default: 7681, use `0` for random port)\n"
           "    -i, --interface         Network interface to bind (eg: eth0), or UNIX domain socket path (eg: /var/run/ttyd.sock)\n"
           "    -U, --socket-owner      User owner of the UNIX domain socket file, when enabled (eg: user:group)\n"
-          "    -c, --credential        Credential for basic authentication (format: username:password)\n"
+          "    -c, --credential        Credential for basic authentication (format: username[:password?] (or TTY_PASSWORD envvar))\n"
           "    -H, --auth-header       HTTP Header name for auth proxy, this will configure ttyd to let a HTTP reverse proxy handle authentication\n"
           "    -u, --uid               User id to run with\n"
           "    -g, --gid               Group id to run with\n"
@@ -387,12 +387,26 @@ int main(int argc, char **argv) {
         break;
       case 'c':
         if (strchr(optarg, ':') == NULL) {
-          fprintf(stderr, "ttyd: invalid credential, format: username:password\n");
-          return -1;
+          char *password = getenv("TTYD_PASSWORD");
+          if(optarg == NULL || password == NULL){
+            fprintf(stderr, "ttyd: invalid credential, format: username[:password] (password maybe over TTYD_PASSWORD)\n");
+            return -1;
+          }
+
+          const size_t optarg_len = strlen(optarg), password_len  = strlen(password);
+          const size_t complete_len = optarg_len+password_len+1;
+          char buf[complete_len+1];
+          sprintf(buf, "%s:%s", optarg, password);
+          buf[complete_len+1]=0;
+
+          char *b64_text=malloc(sizeof(char)*(complete_len+1)*2);
+          lws_b64_encode_string(buf, complete_len, b64_text, (complete_len+1)*2);
+          server->credential = b64_text;
+        }else{
+          char b64_text[256];
+          lws_b64_encode_string(optarg, strlen(optarg), b64_text, sizeof(b64_text));
+          server->credential = strdup(b64_text);
         }
-        char b64_text[256];
-        lws_b64_encode_string(optarg, strlen(optarg), b64_text, sizeof(b64_text));
-        server->credential = strdup(b64_text);
         break;
       case 'H':
         server->auth_header = strdup(optarg);
